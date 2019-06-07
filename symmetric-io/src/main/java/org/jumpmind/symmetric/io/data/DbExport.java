@@ -34,7 +34,6 @@ import java.util.Date;
 import java.util.List;
 
 import org.apache.commons.io.FileUtils;
-import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang.StringEscapeUtils;
 import org.apache.commons.lang.StringUtils;
 import org.jumpmind.db.io.DatabaseXmlUtil;
@@ -210,10 +209,21 @@ public class DbExport {
             return catalog;
         }
     }
-
+    
+    private void removeExcludedColumns(Table table) {
+        if (excludeColumns != null) {
+            for (String columnName : excludeColumns) {
+                int colIndex = table.getColumnIndex(columnName);
+                if (colIndex != -1) {
+                    table.removeColumn(colIndex);
+                }
+            }
+        }
+    }
+    
     protected void writeTable(final WriterWrapper writerWrapper, Table table, String sql)
             throws IOException {
-
+        removeExcludedColumns(table);
         writerWrapper.startTable(table);
 
         if (!noData) {
@@ -226,21 +236,22 @@ public class DbExport {
                             table.getPrimaryKeyColumns(), columnsToExport, null,null).getSql();
                 }
             }
-
-            if (StringUtils.isNotBlank(whereClause)) {
-                sql = String.format("%s %s", sql, whereClause);
-            }
-
-            platform.getSqlTemplate().query(sql, new ISqlRowMapper<Object>() {
-                int rows = maxRows;
-                public Object mapRow(Row row) {
-                    if (rows > 0) {
-                       writerWrapper.writeRow(row);
-                       rows--;
-                    }
-                    return Boolean.TRUE;
+            if (table.getColumnCount() > 0) {
+                if (StringUtils.isNotBlank(whereClause)) {
+                    sql = String.format("%s %s", sql, whereClause);
                 }
-            });
+    
+                platform.getSqlTemplate().query(sql, new ISqlRowMapper<Object>() {
+                    int rows = maxRows;
+                    public Object mapRow(Row row) {
+                        if (rows > 0) {
+                           writerWrapper.writeRow(row);
+                           rows--;
+                        }
+                        return Boolean.TRUE;
+                    }
+                });
+            }
         }
 
         writerWrapper.finishTable(table);
@@ -565,6 +576,7 @@ public class DbExport {
                 writeComment("Catalog: " + StringUtils.defaultString(getCatalogToUse()));
                 writeComment("Schema: " + StringUtils.defaultString(getSchemaToUse()));
                 writeComment("Table: " + table.getName());
+                writeComment("Table Columns: " + java.util.Arrays.deepToString(table.getColumnNames()));
                 writeComment("Started on " + df.format(new Date()));
 
                 if (format == Format.CSV) {
@@ -689,7 +701,11 @@ public class DbExport {
                 csvWriter = null;
             }
 
-            IOUtils.closeQuietly(writer);
+            try {
+            	if(writer != null) {
+            		writer.close();
+            	}
+            } catch(IOException e) { }
             writer = null;
         }
 
